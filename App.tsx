@@ -1,8 +1,7 @@
-
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useTextToSpeech } from './hooks/useTextToSpeech';
 import type { Gender, VoiceOption } from './types';
-import { ALL_VOICES, DEFAULT_FEMALE_VOICE_ID, DEFAULT_MALE_VOICE_ID } from './constants';
+import { ALL_VOICES, VOICE_GROUPS, DEFAULT_FEMALE_VOICE_ID, DEFAULT_MALE_VOICE_ID } from './constants';
 import Spinner from './components/Spinner';
 import AudioResult from './components/AudioResult';
 
@@ -11,8 +10,42 @@ const App: React.FC = () => {
   const [selectedGender, setSelectedGender] = useState<Gender>('male');
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>(DEFAULT_MALE_VOICE_ID);
   const [customTone, setCustomTone] = useState('');
+  const [apiKey, setApiKey] = useState<string>('');
   
-  const { generateSpeech, isLoading, error, audioBlob } = useTextToSpeech();
+  const { 
+    generateSpeech, 
+    isLoading, 
+    error, 
+    audioBlob,
+    validateApiKey,
+    isValidating,
+    isKeyValid,
+    keyValidationError
+  } = useTextToSpeech();
+
+  // Debounced validation effect
+  useEffect(() => {
+    // Wrap validateApiKey in useCallback in the hook to stabilize it
+    const handler = setTimeout(() => {
+      if (apiKey) {
+        validateApiKey(apiKey);
+      } else {
+        // Clear validation state if input is empty
+        validateApiKey('');
+      }
+    }, 500); // 500ms debounce delay
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [apiKey, validateApiKey]);
+
+  useEffect(() => {
+    const storedApiKey = sessionStorage.getItem('gemini-api-key');
+    if (storedApiKey) {
+      setApiKey(storedApiKey);
+    }
+  }, []);
 
   const handleGenderChange = (gender: Gender) => {
     setSelectedGender(gender);
@@ -23,18 +56,20 @@ const App: React.FC = () => {
     }
   };
   
-  const availableVoices = useMemo(() => {
-    return ALL_VOICES.filter(voice => voice.gender === selectedGender);
-  }, [selectedGender]);
-  
   const handleGenerateClick = () => {
     const selectedVoice = ALL_VOICES.find(v => v.id === selectedVoiceId);
     if (selectedVoice) {
       const finalText = customTone.trim()
         ? `พูดด้วยน้ำเสียง${customTone.trim()}: ${text}`
         : text;
-      generateSpeech(finalText, selectedVoice.apiName);
+      generateSpeech(finalText, selectedVoice.apiName, apiKey);
     }
+  };
+
+  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newKey = e.target.value;
+    setApiKey(newKey);
+    sessionStorage.setItem('gemini-api-key', newKey);
   };
 
   return (
@@ -50,6 +85,48 @@ const App: React.FC = () => {
         <main className="bg-slate-800 p-8 rounded-lg shadow-2xl">
           <div className="space-y-6">
             <div>
+              <label htmlFor="api-key-input" className="block text-sm font-medium text-slate-300 mb-2">
+                Google AI API Key
+              </label>
+              <div className="relative">
+                <input
+                  id="api-key-input"
+                  type="password"
+                  className={`w-full bg-slate-700 text-white p-3 rounded-md border transition pr-10 ${
+                    isKeyValid === true ? 'border-green-500 focus:ring-green-500 focus:border-green-500' : 
+                    isKeyValid === false ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 
+                    'border-slate-600 focus:ring-sky-500 focus:border-sky-500'
+                  }`}
+                  placeholder="กรุณาป้อน API Key ของคุณที่นี่"
+                  value={apiKey}
+                  onChange={handleApiKeyChange}
+                  aria-required="true"
+                  aria-invalid={isKeyValid === false}
+                  aria-describedby="api-key-status-message"
+                />
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                  {isValidating ? (
+                    <Spinner />
+                  ) : isKeyValid === true ? (
+                    <svg className="h-5 w-5 text-green-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                  ) : isKeyValid === false ? (
+                    <svg className="h-5 w-5 text-red-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  ) : null}
+                </div>
+              </div>
+              <p id="api-key-status-message" className="text-xs mt-1.5"
+                style={{ color: isKeyValid === false ? 'rgb(248 113 113)' : 'rgb(148 163 184)' }}>
+                {keyValidationError || 'คีย์ของคุณจะถูกเก็บไว้ใน session ปัจจุบันเท่านั้น'}
+              </p>
+            </div>
+            
+            <hr className="border-slate-700" />
+
+            <div>
               <div className="flex justify-between items-center mb-2">
                 <label htmlFor="text-input" className="block text-sm font-medium text-slate-300">
                   ป้อนข้อความของคุณที่นี่
@@ -64,7 +141,7 @@ const App: React.FC = () => {
               </div>
               <textarea
                 id="text-input"
-                rows={5}
+                rows={8}
                 className="w-full bg-slate-700 text-white p-3 rounded-md border border-slate-600 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition"
                 placeholder="พิมพ์ข้อความ..."
                 value={text}
@@ -98,11 +175,21 @@ const App: React.FC = () => {
                   onChange={(e) => setSelectedVoiceId(e.target.value)}
                   className="w-full bg-slate-700 text-white p-2.5 rounded-md border border-slate-600 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition"
                 >
-                  {availableVoices.map((voice) => (
-                    <option key={voice.id} value={voice.id}>
-                      {voice.name}
-                    </option>
-                  ))}
+                  {VOICE_GROUPS.map((group) => {
+                    const voicesInGroup = group.voices.filter(voice => voice.gender === selectedGender);
+                    if (voicesInGroup.length === 0) {
+                      return null; 
+                    }
+                    return (
+                      <optgroup key={group.language} label={group.language}>
+                        {voicesInGroup.map((voice) => (
+                          <option key={voice.id} value={voice.id}>
+                            {voice.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
                 </select>
               </div>
             </div>
@@ -140,7 +227,7 @@ const App: React.FC = () => {
             <div>
               <button
                 onClick={handleGenerateClick}
-                disabled={isLoading || !text.trim()}
+                disabled={isLoading || !text.trim() || !apiKey.trim() || isKeyValid !== true}
                 className="w-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 disabled:bg-slate-500 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-md transition-all duration-200"
               >
                 {isLoading ? (
